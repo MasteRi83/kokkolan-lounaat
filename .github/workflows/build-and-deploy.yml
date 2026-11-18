@@ -1,16 +1,22 @@
-name: Scrape Menus and Deploy
+name: Scrape Menus and Update Data
 
 on:
+  schedule:
+    - cron: '0 6 * * 1-5'
+  workflow_dispatch:
   push:
     branches:
       - main
-  # Daily 7am Europe/Helsinki trigger is handled by an external Cloudflare
-  # Worker (cron trigger + workflow_dispatch), since GitHub's own `schedule`
-  # trigger was landing runs hours late.
-  workflow_dispatch:
+    paths:
+      - 'backend/**'
+      - 'frontend/**'
+      - '.github/workflows/build-and-deploy.yml'
+
+permissions:
+  contents: write
 
 jobs:
-  build_and_deploy:
+  scrape_menus:
     runs-on: ubuntu-latest
 
     steps:
@@ -29,26 +35,9 @@ jobs:
         working-directory: backend
         run: python generate_static_data.py
 
-      - name: Set up Node
-        uses: actions/setup-node@v4
-        with:
-          node-version: "22"
-          cache: "npm"
-          cache-dependency-path: frontend/package-lock.json
-
-      - name: Install frontend dependencies
-        working-directory: frontend
-        run: npm ci
-
-      - name: Build static site
-        working-directory: frontend
-        env:
-          NEXT_PUBLIC_GTM_CONTAINER_ID: ${{ vars.NEXT_PUBLIC_GTM_CONTAINER_ID }}
-        run: npm run build
-
-      - name: Deploy to Cloudflare Pages
-        uses: cloudflare/wrangler-action@v3
-        with:
-          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          command: pages deploy frontend/out --project-name=lunssi
+      - name: Commit updated menus
+        run: |
+          git config --local user.email "github-actions[bot]@://github.com"
+          git config --local user.name "github-actions[bot]"
+          git add frontend/data/
+          git diff --staged --quiet || git commit -m "Päivitetty Kokkolan lounaslistat"
