@@ -9,13 +9,37 @@ HEADERS = {
 }
 
 DAYS_FI = ["Maanantai", "Tiistai", "Keskiviikko", "Torstai", "Perjantai"]
+DAYS_SHORT = ["MA", "TI", "KE", "TO", "PE"]
+
+
+def extract_day_lines(text, idx):
+    today_full = DAYS_FI[idx]
+    today_short = DAYS_SHORT[idx]
+    next_full = DAYS_FI[idx + 1] if idx < 4 else "Lounas"
+    next_short = DAYS_SHORT[idx + 1] if idx < 4 else "Lounas"
+
+    patterns = [
+        rf"{today_full}[^\n]*\n(.*?)(?:{next_full}|Lounas sis|Hinta|Allergeenit)",
+        rf"\b{today_short}\b[^\n]*\n(.*?)(?:\b{next_short}\b|Lounas sis|Hinta)",
+    ]
+    for pat in patterns:
+        match = re.search(pat, text, re.DOTALL | re.IGNORECASE)
+        if match:
+            lines = [
+                " ".join(l.split())
+                for l in match.group(1).split("\n")
+                if len(l.strip()) > 3 and not re.match(r"^\d{1,2}\.\d{1,2}\.?$", l.strip())
+            ]
+            if lines:
+                return lines[:8]
+    return []
 
 
 class HarjunRinkeliScraper(RestaurantScraper):
     def __init__(self):
         super().__init__(
             "Harjun Rinkeli",
-            "https://harjunleipomo.fi/lounas",
+            "https://harjunleipomo.fi",
             "https://google.com",
             "11,00€ - 14,00€",
             "10:30 - 14:00",
@@ -27,23 +51,17 @@ class HarjunRinkeliScraper(RestaurantScraper):
         idx = datetime.now().weekday()
         if idx >= 5:
             return ["Ei lounasta viikonloppuna."]
-        today = DAYS_FI[idx]
-        next_day = DAYS_FI[idx + 1] if idx < 4 else "Lounas tarjolla"
-
         text = soup.get_text("\n", strip=True)
-        section = text.split("Harjun Rinkeli")[-1].split("Harjun Puffetti")[0] if "Harjun Rinkeli" in text else text
-        match = re.search(rf"{today}\.?\s*\n(.*?){next_day}", section, re.DOTALL | re.IGNORECASE)
-        if match:
-            lines = [l.strip() for l in match.group(1).split("\n") if len(l.strip()) > 3]
-            return lines[:6] if lines else self.menu_fallback[lang]
-        return self.menu_fallback[lang]
+        section = text.split("Harjun Puffetti") if "Harjun Puffetti" in text else text
+        lines = extract_day_lines(section, idx)
+        return lines if lines else self.menu_fallback[lang]
 
 
 class HarjunPuffettiScraper(RestaurantScraper):
     def __init__(self):
         super().__init__(
             "Harjun Puffetti",
-            "https://harjunleipomo.fi/lounas",
+            "https://harjunleipomo.fi",
             "https://google.com",
             "10,00€ - 14,00€",
             "10:30 - 14:00",
@@ -55,113 +73,122 @@ class HarjunPuffettiScraper(RestaurantScraper):
         idx = datetime.now().weekday()
         if idx >= 5:
             return ["Ei lounasta viikonloppuna."]
-        today = DAYS_FI[idx]
-        next_day = DAYS_FI[idx + 1] if idx < 4 else "Lounas tarjolla"
-
         text = soup.get_text("\n", strip=True)
         section = text.split("Harjun Puffetti")[-1] if "Harjun Puffetti" in text else text
-        match = re.search(rf"{today}\.?\s*\n(.*?){next_day}", section, re.DOTALL | re.IGNORECASE)
-        if match:
-            lines = [l.strip() for l in match.group(1).split("\n") if len(l.strip()) > 3]
-            return lines[:6] if lines else self.menu_fallback[lang]
-        return self.menu_fallback[lang]
+        lines = extract_day_lines(section, idx)
+        return lines if lines else self.menu_fallback[lang]
 
 
 class KulmaScraper(RestaurantScraper):
     def __init__(self):
         super().__init__(
             "Kahvila-Ravintola Kulma",
-            "https://compass-group.fi",
+            "https://lounastori.fi",
             "https://google.com",
             "13,30€",
             "10:45 - 14:00",
         )
         self.region = "kokkola"
         self.headers = HEADERS
-        self.lang_urls = {
-            "fi": "https://compass-group.fi",
-            "en": "https://compass-group.fi",
-        }
-
-    async def get_lunch_info(self, lang="fi", format="json"):
-        return await super().get_lunch_info(lang=lang, format="json")
-
-    def parse_json_menu(self, data, lang):
-        today_iso = datetime.now().strftime("%Y-%m-%d")
-        items = []
-        for day_menu in data.get("MenusForDays", []):
-            if today_iso in day_menu.get("Date", ""):
-                for set_menu in day_menu.get("SetMenus", []):
-                    comps = [c.strip() for c in set_menu.get("Components", []) if c.strip()]
-                    if comps:
-                        items.append(", ".join(comps))
-                break
-        return items if items else self.menu_fallback[lang]
-
-
-class LounasMenuKokkolaScraper(RestaurantScraper):
-    """Hakee listan Lounasmenu.fi Kokkola -sivulta (ei estä pilvipalvelimia)."""
-    def __init__(self, name, search_term, url, location, lunch_price, lunch_hours):
-        super().__init__(name, url, location, lunch_price, lunch_hours)
-        self.region = "kokkola"
-        self.headers = HEADERS
-        self.search_term = search_term.lower()
-        self.lang_urls = {
-            "fi": "https://www.lounasmenu.fi/kokkola/",
-            "en": "https://www.lounasmenu.fi/kokkola/",
-        }
 
     def parse_menu(self, soup, lang):
-        for card in soup.select("article, .restaurant-card, .menu-card, div"):
-            heading = card.find(["h2", "h3", "h4"])
-            if not heading:
-                continue
-            if self.search_term in heading.get_text(" ", strip=True).lower():
-                dishes = []
-                for row in card.select("li, p, .menu-item"):
-                    txt = " ".join(row.get_text(" ", strip=True).split())
-                    if 5 < len(txt) < 140 and self.search_term not in txt.lower() and "€" not in txt[:5]:
-                        if txt not in dishes:
-                            dishes.append(txt)
-                if dishes:
-                    return dishes[:8]
-        return self.menu_fallback[lang]
+        idx = datetime.now().weekday()
+        if idx >= 5:
+            return ["Ei lounasta viikonloppuna."]
+        text = soup.get_text("\n", strip=True)
+        lines = extract_day_lines(text, idx)
+        if lines:
+            return lines
+        food_words = ("keitto", "salaatti", "lihapullat", "kastike", "perunat", "riisi", "broileri", "kala", "pata", "kiusaus")
+        fallback_lines = [
+            " ".join(l.split())
+            for l in text.split("\n")
+            if any(w in l.lower() for w in food_words) and 6 < len(l.strip()) < 110
+        ]
+        return fallback_lines[:6] if fallback_lines else self.menu_fallback[lang]
 
 
-class TowerBistroScraper(LounasMenuKokkolaScraper):
+class TowerBistroScraper(RestaurantScraper):
     def __init__(self):
         super().__init__(
             "Tower Bistro",
-            "tower bistro",
-            "https://towerbistro.fi/lounas/",
+            "https://lounastori.fi",
             "https://google.com",
             "15,90€",
             "10:30 - 14:00",
         )
+        self.region = "kokkola"
+        self.headers = HEADERS
+
+    def parse_menu(self, soup, lang):
+        idx = datetime.now().weekday()
+        if idx >= 5:
+            return ["Ei lounasta viikonloppuna."]
+        text = soup.get_text("\n", strip=True)
+        lines = extract_day_lines(text, idx)
+        if lines:
+            return lines
+        food_words = ("keitto", "pihvi", "pasta", "lohi", "broileri", "possu", "nauta", "salaatti", "peruna", "riisi")
+        fallback_lines = [
+            " ".join(l.split())
+            for l in text.split("\n")
+            if any(w in l.lower() for w in food_words) and 6 < len(l.strip()) < 110
+        ]
+        return fallback_lines[:6] if fallback_lines else self.menu_fallback[lang]
 
 
-class RossoScraper(LounasMenuKokkolaScraper):
+class SataMaScraper(RestaurantScraper):
+    def __init__(self):
+        super().__init__(
+            "100MA Social",
+            "https://lounastori.fi",
+            "https://google.com",
+            "14,90€",
+            "10:30 - 13:00",
+        )
+        self.region = "kokkola"
+        self.headers = HEADERS
+
+    def parse_menu(self, soup, lang):
+        idx = datetime.now().weekday()
+        if idx >= 5:
+            return ["Ei lounasta viikonloppuna."]
+        text = soup.get_text("\n", strip=True)
+        lines = extract_day_lines(text, idx)
+        if lines:
+            return lines
+        food_words = ("keitto", "pihvi", "pasta", "kala", "broileri", "possu", "nauta", "kasvis", "pata", "kääryleet")
+        fallback_lines = [
+            " ".join(l.split())
+            for l in text.split("\n")
+            if any(w in l.lower() for w in food_words) and 6 < len(l.strip()) < 110
+        ]
+        return fallback_lines[:6] if fallback_lines else self.menu_fallback[lang]
+
+
+class RossoScraper(RestaurantScraper):
     def __init__(self):
         super().__init__(
             "Rosso Kokkola",
-            "rosso",
             "https://raflaamo.fi",
             "https://google.com",
             "13,70€ - 16,90€",
             "11:00 - 14:00",
         )
+        self.region = "kokkola"
+        self.headers = HEADERS
 
-
-class SataMaScraper(LounasMenuKokkolaScraper):
-    def __init__(self):
-        super().__init__(
-            "100MA Social",
-            "100ma",
-            "https://www.100masocial.fi/fi/menu",
-            "https://google.com",
-            "14,90€",
-            "10:30 - 13:00",
-        )
+    def parse_menu(self, soup, lang):
+        idx = datetime.now().weekday()
+        if idx >= 5:
+            return ["Ei lounasta viikonloppuna."]
+        text = soup.get_text("\n", strip=True)
+        lines = extract_day_lines(text, idx)
+        if lines:
+            return lines
+        return [
+            "Päivän lounaspöytä & vaihtuvat pizza-/pastavaihtoehdot (katso tarkka päivälista otsikon linkistä)"
+        ]
 
 
 class KungsKitchenScraper(RestaurantScraper):
