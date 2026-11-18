@@ -1,43 +1,13 @@
-name: Scrape Menus and Update Data
+name: Arkiaamun lounaspaivitys
 
 on:
   schedule:
     - cron: '0 6 * * 1-5'
   workflow_dispatch:
-  push:
-    branches:
-      - main
-    paths:
-      - 'backend/**'
-      - 'frontend/**'
-      - '.github/workflows/build-and-deploy.yml'
-
-permissions:
-  contents: write
 
 jobs:
-  scrape_menus:
+  trigger_cloudflare_build:
     runs-on: ubuntu-latest
-
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-
-      - name: Install backend dependencies
-        run: pip install -r backend/requirements.txt
-
-      - name: Scrape restaurant menus
-        working-directory: backend
-        run: python generate_static_data.py
-
-      - name: Commit updated menus
-        run: |
-          git config --local user.email "github-actions[bot]@://github.com"
-          git config --local user.name "github-actions[bot]"
-          git add  -f frontend/data/
-          git diff --staged --quiet || git commit -m "Päivitetty Kokkolan lounaslistat"
+      - name: Trigger Cloudflare Build
+        run: curl -X POST "${{ secrets.CLOUDFLARE_DEPLOY_HOOK }}"
