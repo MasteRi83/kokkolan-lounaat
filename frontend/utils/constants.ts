@@ -1,7 +1,5 @@
 export const regions = [
-  { id: "kamppi", label: "Helsinki - Kamppi" },
-  { id: "jatkasaari", label: "Helsinki - Jätkäsaari" },
-  { id: "tampere", label: "Tampere" },
+  { id: "kokkola", label: "Kokkola" },
 ];
 
-export const defaultRegion = "kamppi";
+export const defaultRegion = "kokkola";
