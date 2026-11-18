@@ -38,9 +38,7 @@ export const generateMetadata = async (props: Props): Promise<Metadata> => {
 };
 
 export const generateStaticParams = async () => {
-  return regions
-    .filter(({ id }) => id !== defaultRegion)
-    .flatMap(({ id }) =>
+  return regions.flatMap(({ id }) =>
       routing.locales.map((locale) => ({
         locale,
         region: id,
