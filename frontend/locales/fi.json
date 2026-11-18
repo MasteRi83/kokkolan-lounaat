@@ -1,16 +1,16 @@
 {
-  "contactUs": "Ota yhteyttä",
+  "contactUs": "",
   "contributors": "Kokkolan Lounaat",
   "language": "Kieli",
   "lunchAvailable": "Lounas saatavilla",
   "menuFor": "Ruokalistat {date}",
   "metaTitle": "Kokkolan Lounaat",
-  "metaDescription": "Kokkolan Lounaa",
+  "metaDescription": "Kokkolan Lounaat",
   "price": "Hinta",
   "region": "Alue",
   "showMore": "Näytä lisää",
   "showLess": "Näytä vähemmän",
-  "sourceCode": "Katso GitHubissa",
+  "sourceCode": "",
   "studentCantine": "Tämä on opiskelijaruokala",
   "openInMaps": "Avaa sijainti Google Mapsissa"
 }
