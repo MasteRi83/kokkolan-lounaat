@@ -2,12 +2,54 @@ import re
 from datetime import datetime
 from scrapers.base import RestaurantScraper
 
+BROWSER_HEADERS = {
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+    "Accept-Language": "fi-FI,fi;q=0.9,en;q=0.8",
+}
+
+
+class KulmaScraper(RestaurantScraper):
+    """Hakee Kulman listan suoraan Compass Groupin virallisesta JSON-rajapinnasta."""
+    def __init__(self):
+        super().__init__(
+            "Kahvila-Ravintola Kulma",
+            "https://compass-group.fi",
+            "https://google.com",
+            "13,30€",
+            "10:45 - 14:00",
+        )
+        self.region = "kokkola"
+        self.headers = BROWSER_HEADERS
+        self.lang_urls = {
+            "fi": "https://compass-group.fi",
+            "en": "https://compass-group.fi",
+        }
+
+    async def get_lunch_info(self, lang="fi", format="json"):
+        return await super().get_lunch_info(lang=lang, format="json")
+
+    def parse_json_menu(self, data, lang):
+        today_iso = datetime.now().strftime("%Y-%m-%d")
+        items = []
+        for day_menu in data.get("MenusForDays", []):
+            if today_iso in day_menu.get("Date", ""):
+                for set_menu in day_menu.get("SetMenus", []):
+                    name = set_menu.get("Name", "")
+                    components = [c.strip() for c in set_menu.get("Components", []) if c.strip()]
+                    if components:
+                        prefix = f"{name}: " if name else ""
+                        items.append(prefix + ", ".join(components))
+                break
+        return items if items else self.menu_fallback[lang]
+
 
 class LounaatInfoKokkolaScraper(RestaurantScraper):
-    """Hakee Kokkolan ravintolan päivän ruokalistan suoraan Lounaat.info-koontisivulta."""
+    """Hakee Kokkolan ravintolan listan Lounaat.info-sivulta selainotsakkeilla."""
     def __init__(self, name, search_term, url, location, lunch_price, lunch_hours):
         super().__init__(name, url, location, lunch_price, lunch_hours)
         self.region = "kokkola"
+        self.headers = BROWSER_HEADERS
         self.search_term = search_term.lower()
         self.lang_urls = {
             "fi": "https://lounaat.info",
@@ -16,14 +58,13 @@ class LounaatInfoKokkolaScraper(RestaurantScraper):
 
     def parse_menu(self, soup, lang):
         for item in soup.select("div.item"):
-            title_el = item.select_one("h3, .item-header a")
-            if not title_el:
+            header = item.select_one(".item-header")
+            if not header:
                 continue
-            title = title_el.get_text(" ", strip=True).lower()
-            if self.search_term in title:
+            if self.search_term in header.get_text(" ", strip=True).lower():
                 dishes = []
-                for li in item.select("li.menu-item, .dish, li, p.dish"):
-                    txt = " ".join(li.get_text(" ", strip=True).split())
+                for row in item.select("li, p.dish, .dish"):
+                    txt = " ".join(row.get_text(" ", strip=True).split())
                     if txt and len(txt) > 3 and "lisää lounaslistaan" not in txt.lower():
                         dishes.append(txt)
                 if not dishes:
@@ -85,57 +126,16 @@ class HarjunRinkeliScraper(LounaatInfoKokkolaScraper):
         )
 
 
-class TowerBistroScraper(RestaurantScraper):
+class TowerBistroScraper(LounaatInfoKokkolaScraper):
     def __init__(self):
         super().__init__(
             "Tower Bistro",
+            "tower",
             "https://towerbistro.fi",
             "https://google.com",
             "15,90€",
             "10:30 - 14:00",
         )
-        self.region = "kokkola"
-
-    def parse_menu(self, soup, lang):
-        days = ["Maanantai", "Tiistai", "Keskiviikko", "Torstai", "Perjantai"]
-        idx = datetime.now().weekday()
-        if idx >= 5:
-            return ["Ei lounasta viikonloppuna."]
-        today = days[idx]
-        next_day = days[idx + 1] if idx < 4 else "Hinta"
-
-        text = soup.get_text("\n", strip=True)
-        pattern = re.compile(rf"{today}.*?\n(.*?)(?:{next_day}|Lounas sis|Alennukset)", re.DOTALL | re.IGNORECASE)
-        match = pattern.search(text)
-        if match:
-            lines = [
-                line.strip()
-                for line in match.group(1).split("\n")
-                if len(line.strip()) > 3 and not re.match(r"^\d{1,2}\.\d{1,2}\.?$", line.strip())
-            ]
-            return lines[:8] if lines else self.menu_fallback[lang]
-        return self.menu_fallback[lang]
-
-
-class KulmaScraper(RestaurantScraper):
-    def __init__(self):
-        super().__init__(
-            "Kahvila-Ravintola Kulma",
-            "https://compass-group.fi",
-            "https://google.com",
-            "13,30€",
-            "10:45 - 14:00",
-        )
-        self.region = "kokkola"
-
-    def parse_menu(self, soup, lang):
-        items = []
-        for el in soup.select("p, li, span"):
-            txt = " ".join(el.get_text(" ", strip=True).split())
-            if any(k in txt.lower() for k in ["keitto", "salaatti", "lihapullat", "kastike", "perunat", "riisi", "broileri", "kala", "pata", "kiusaus", "mifu"]):
-                if 6 < len(txt) < 110 and txt not in items:
-                    items.append(txt)
-        return items[:8] if items else self.menu_fallback[lang]
 
 
 class KungsKitchenScraper(RestaurantScraper):
