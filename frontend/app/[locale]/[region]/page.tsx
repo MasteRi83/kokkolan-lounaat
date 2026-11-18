@@ -78,13 +78,12 @@ const Region = async (props: Props) => {
       <main className="bg-gray-100 pb-8">
         <div className="mx-auto max-w-7xl 2xl:max-w-(--breakpoint-2xl) px-4 sm:px-6 lg:px-8 py-8">
           <h1 className="text-4xl font-bold mb-2 text-center text-gray-800">
-            Lunssi
+            Kokkolan Lounaat
           </h1>
           <p className="mb-8 text-center text-gray-500">
             {t("menuFor", { date: menuDate })}
           </p>
           <div className="mt-8 mb-5 flex justify-end gap-4">
-            <RegionChanger currentRegion={region} />
             <LanguageChanger />
           </div>
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
@@ -117,6 +116,5 @@ const Region = async (props: Props) => {
       </main>
     </NextIntlClientProvider>
   );
-};
 
 export default Region;
