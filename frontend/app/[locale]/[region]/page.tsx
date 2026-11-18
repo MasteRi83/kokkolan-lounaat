@@ -7,11 +7,10 @@ import {
   setRequestLocale,
 } from "next-intl/server";
 import LanguageChanger from "@/components/LanguageChanger";
-import RegionChanger from "@/components/RegionChanger";
 import RestaurantCard from "@/components/RestaurantCard";
 import { routing } from "@/i18n/routing";
 import { getRestaurantData } from "@/lib/restaurants";
-import { defaultRegion, regions } from "@/utils/constants";
+import { regions } from "@/utils/constants";
 
 type Props = { params: Promise<{ locale: string; region: string }> };
 
@@ -27,23 +26,16 @@ export const generateMetadata = async (props: Props): Promise<Metadata> => {
       description: t("metaDescription"),
       locale,
     },
-    alternates: {
-      canonical: "https://lunssi.fi",
-      languages: {
-        fi: "https://lunssi.fi",
-        en: "https://lunssi.fi/en",
-      },
-    },
   };
 };
 
 export const generateStaticParams = async () => {
   return regions.flatMap(({ id }) =>
-      routing.locales.map((locale) => ({
-        locale,
-        region: id,
-      })),
-    );
+    routing.locales.map((locale) => ({
+      locale,
+      region: id,
+    })),
+  );
 };
 
 const Region = async (props: Props) => {
@@ -116,5 +108,6 @@ const Region = async (props: Props) => {
       </main>
     </NextIntlClientProvider>
   );
+};
 
 export default Region;
