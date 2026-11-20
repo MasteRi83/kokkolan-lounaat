@@ -30,12 +30,12 @@ async def load_sheet_rows():
         rows = list(reader)
         parsed = {}
 
-        # Ohitetaan otsikkorivi (rivi 1) ja luetaan sarake A (nimi), B (url), C (menu)
+        # Ohitetaan otsikkorivi (rivi 1) ja luetaan sarake A, B, C [2]
         for row in rows[1:]:
-            if len(row) >= 1 and row.strip():
-                ravintola_nimi = row.strip().lower()
-                ravintola_url = row.strip() if len(row) >= 2 else ""
-                ruokalista_str = row.strip() if len(row) >= 3 else ""
+            if len(row) >= 1 and row[0].strip():
+                ravintola_nimi = row[0].strip().lower()
+                ravintola_url = row[1].strip() if len(row) >= 2 else ""
+                ruokalista_str = row[2].strip() if len(row) >= 3 else ""
                 parsed[ravintola_nimi] = {
                     "url": ravintola_url,
                     "menu": ruokalista_str,
