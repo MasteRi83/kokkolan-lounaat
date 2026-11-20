@@ -1,209 +1,168 @@
-import re
-from datetime import datetime
+import csv
+import io
+import logging
+import httpx
 from scrapers.base import RestaurantScraper
 
-HEADERS = {
-    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
-    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-    "Accept-Language": "fi-FI,fi;q=0.9,en;q=0.8",
-}
+# VAIHDA TÄHÄN OMA JULKAISTU GOOGLE SHEETS CSV-OSOITTEESI:
+# (Tiedosto -> Jaa -> Julkaise verkossa -> Taulukko1 -> Pilkuilla erotetut arvot .csv)
+SHEET_CSV_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vSMAqZy7NbwtWM3Bu3Y6LE9HWoP0KlXzwjzldeNn1me6yMrkYN-zdypgPtYXxEaxGHSj8XGQD21iUsd/pub?gid=0&single=true&output=csv"
 
-DAYS_FI = ["Maanantai", "Tiistai", "Keskiviikko", "Torstai", "Perjantai"]
-DAYS_SHORT = ["MA", "TI", "KE", "TO", "PE"]
+_SHEET_CACHE = None
 
 
-def extract_day_lines(text, idx):
-    today_full = DAYS_FI[idx]
-    today_short = DAYS_SHORT[idx]
-    next_full = DAYS_FI[idx + 1] if idx < 4 else "Lounas"
-    next_short = DAYS_SHORT[idx + 1] if idx < 4 else "Lounas"
+async def load_sheet_rows():
+    global _SHEET_CACHE
+    if _SHEET_CACHE is not None:
+        return _SHEET_CACHE
 
-    patterns = [
-        rf"{today_full}[^\n]*\n(.*?)(?:{next_full}|Lounas sis|Hinta|Allergeenit)",
-        rf"\b{today_short}\b[^\n]*\n(.*?)(?:\b{next_short}\b|Lounas sis|Hinta)",
-    ]
-    for pat in patterns:
-        match = re.search(pat, text, re.DOTALL | re.IGNORECASE)
-        if match:
-            lines = [
-                " ".join(l.split())
-                for l in match.group(1).split("\n")
-                if len(l.strip()) > 3 and not re.match(r"^\d{1,2}\.\d{1,2}\.?$", l.strip())
-            ]
-            if lines:
-                return lines[:8]
-    return []
+    if not SHEET_CSV_URL or "LIITA_TÄHÄN" in SHEET_CSV_URL:
+        logging.error("SHEET_CSV_URL puuttuu kokkola.py -tiedostosta!")
+        return {}
+
+    try:
+        async with httpx.AsyncClient(timeout=30, follow_redirects=True) as client:
+            response = await client.get(SHEET_CSV_URL)
+            response.raise_for_status()
+            text = response.content.decode("utf-8")
+
+        reader = csv.reader(io.StringIO(text))
+        rows = list(reader)
+        parsed = {}
+
+        # Ohitetaan otsikkorivi (rivi 1) ja luetaan sarake A (nimi), B (url), C (menu)
+        for row in rows[1:]:
+            if len(row) >= 1 and row.strip():
+                ravintola_nimi = row.strip().lower()
+                ravintola_url = row.strip() if len(row) >= 2 else ""
+                ruokalista_str = row.strip() if len(row) >= 3 else ""
+                parsed[ravintola_nimi] = {
+                    "url": ravintola_url,
+                    "menu": ruokalista_str,
+                }
+
+        _SHEET_CACHE = parsed
+        return parsed
+    except Exception as e:
+        logging.error(f"Virhe Google Sheets CSV:n latauksessa: {e!r}")
+        return {}
 
 
-class HarjunRinkeliScraper(RestaurantScraper):
+class GoogleSheetKokkolaScraper(RestaurantScraper):
+    def __init__(self, name, sheet_key, default_url, location, lunch_price, lunch_hours):
+        super().__init__(name, default_url, location, lunch_price, lunch_hours)
+        self.region = "kokkola"
+        self.sheet_key = sheet_key.lower()
+
+    async def get_lunch_info(self, lang="fi", format="html"):
+        sheet_data = await load_sheet_rows()
+        row = sheet_data.get(self.sheet_key)
+
+        menu_lines = self.menu_fallback[lang]
+        final_url = self.url
+
+        if row:
+            if row["url"]:
+                final_url = row["url"]
+
+            raw_menu = row["menu"]
+            if raw_menu:
+                # Pilkotaan Apps Scriptin " • "-erottimella yhdistetyt ruoat omiksi riveiksi
+                parts = [part.strip() for part in raw_menu.split("•") if part.strip()]
+                if parts:
+                    menu_lines = parts
+
+        return (
+            self.discount[lang],
+            self.is_student_cantine,
+            self.location,
+            self.lunch_hours,
+            self.lunch_price,
+            menu_lines,
+            self.name,
+            final_url,
+        )
+
+
+class KungsKitchenScraper(GoogleSheetKokkolaScraper):
     def __init__(self):
         super().__init__(
-            "Harjun Rinkeli",
-            "https://harjunleipomo.fi",
-            "https://google.com",
-            "11,00€ - 14,00€",
-            "10:30 - 14:00",
+            name="Kung's Kitchen",
+            sheet_key="Kung's Kitchen",
+            default_url="https://lounaat.info",
+            location="https://google.com",
+            lunch_price="13,50€",
+            lunch_hours="10:45 - 15:00",
         )
-        self.region = "kokkola"
-        self.headers = HEADERS
-
-    def parse_menu(self, soup, lang):
-        idx = datetime.now().weekday()
-        if idx >= 5:
-            return ["Ei lounasta viikonloppuna."]
-        text = soup.get_text("\n", strip=True)
-        section = text.split("Harjun Puffetti") if "Harjun Puffetti" in text else text
-        lines = extract_day_lines(section, idx)
-        return lines if lines else self.menu_fallback[lang]
 
 
-class HarjunPuffettiScraper(RestaurantScraper):
+class TowerBistroScraper(GoogleSheetKokkolaScraper):
     def __init__(self):
         super().__init__(
-            "Harjun Puffetti",
-            "https://harjunleipomo.fi",
-            "https://google.com",
-            "10,00€ - 14,00€",
-            "10:30 - 14:00",
+            name="Tower Bistro",
+            sheet_key="Tower Bistro",
+            default_url="https://lounaat.info",
+            location="https://google.com",
+            lunch_price="15,90€",
+            lunch_hours="10:30 - 14:00",
         )
-        self.region = "kokkola"
-        self.headers = HEADERS
-
-    def parse_menu(self, soup, lang):
-        idx = datetime.now().weekday()
-        if idx >= 5:
-            return ["Ei lounasta viikonloppuna."]
-        text = soup.get_text("\n", strip=True)
-        section = text.split("Harjun Puffetti")[-1] if "Harjun Puffetti" in text else text
-        lines = extract_day_lines(section, idx)
-        return lines if lines else self.menu_fallback[lang]
 
 
-class KulmaScraper(RestaurantScraper):
+class RossoScraper(GoogleSheetKokkolaScraper):
     def __init__(self):
         super().__init__(
-            "Kahvila-Ravintola Kulma",
-            "https://lounastori.fi",
-            "https://google.com",
-            "13,30€",
-            "10:45 - 14:00",
+            name="Rosso Kokkola",
+            sheet_key="Rosso Kokkola",
+            default_url="https://lounaat.info",
+            location="https://google.com",
+            lunch_price="13,70€ - 16,90€",
+            lunch_hours="11:00 - 14:00",
         )
-        self.region = "kokkola"
-        self.headers = HEADERS
-
-    def parse_menu(self, soup, lang):
-        idx = datetime.now().weekday()
-        if idx >= 5:
-            return ["Ei lounasta viikonloppuna."]
-        text = soup.get_text("\n", strip=True)
-        lines = extract_day_lines(text, idx)
-        if lines:
-            return lines
-        food_words = ("keitto", "salaatti", "lihapullat", "kastike", "perunat", "riisi", "broileri", "kala", "pata", "kiusaus")
-        fallback_lines = [
-            " ".join(l.split())
-            for l in text.split("\n")
-            if any(w in l.lower() for w in food_words) and 6 < len(l.strip()) < 110
-        ]
-        return fallback_lines[:6] if fallback_lines else self.menu_fallback[lang]
 
 
-class TowerBistroScraper(RestaurantScraper):
+class SataMaScraper(GoogleSheetKokkolaScraper):
     def __init__(self):
         super().__init__(
-            "Tower Bistro",
-            "https://lounastori.fi",
-            "https://google.com",
-            "15,90€",
-            "10:30 - 14:00",
+            name="100MA Social",
+            sheet_key="100MA Social",
+            default_url="https://100masocial.fi",
+            location="https://google.com",
+            lunch_price="14,90€",
+            lunch_hours="10:30 - 13:00",
         )
-        self.region = "kokkola"
-        self.headers = HEADERS
-
-    def parse_menu(self, soup, lang):
-        idx = datetime.now().weekday()
-        if idx >= 5:
-            return ["Ei lounasta viikonloppuna."]
-        text = soup.get_text("\n", strip=True)
-        lines = extract_day_lines(text, idx)
-        if lines:
-            return lines
-        food_words = ("keitto", "pihvi", "pasta", "lohi", "broileri", "possu", "nauta", "salaatti", "peruna", "riisi")
-        fallback_lines = [
-            " ".join(l.split())
-            for l in text.split("\n")
-            if any(w in l.lower() for w in food_words) and 6 < len(l.strip()) < 110
-        ]
-        return fallback_lines[:6] if fallback_lines else self.menu_fallback[lang]
 
 
-class SataMaScraper(RestaurantScraper):
+class HarjunPuffettiScraper(GoogleSheetKokkolaScraper):
     def __init__(self):
         super().__init__(
-            "100MA Social",
-            "https://lounastori.fi",
-            "https://google.com",
-            "14,90€",
-            "10:30 - 13:00",
+            name="Harjun Puffetti",
+            sheet_key="Harjun Puffetti",
+            default_url="https://lounaat.info",
+            location="https://google.com",
+            lunch_price="10,00€ - 14,00€",
+            lunch_hours="10:30 - 14:00",
         )
-        self.region = "kokkola"
-        self.headers = HEADERS
-
-    def parse_menu(self, soup, lang):
-        idx = datetime.now().weekday()
-        if idx >= 5:
-            return ["Ei lounasta viikonloppuna."]
-        text = soup.get_text("\n", strip=True)
-        lines = extract_day_lines(text, idx)
-        if lines:
-            return lines
-        food_words = ("keitto", "pihvi", "pasta", "kala", "broileri", "possu", "nauta", "kasvis", "pata", "kääryleet")
-        fallback_lines = [
-            " ".join(l.split())
-            for l in text.split("\n")
-            if any(w in l.lower() for w in food_words) and 6 < len(l.strip()) < 110
-        ]
-        return fallback_lines[:6] if fallback_lines else self.menu_fallback[lang]
 
 
-class RossoScraper(RestaurantScraper):
+class HarjunRinkeliScraper(GoogleSheetKokkolaScraper):
     def __init__(self):
         super().__init__(
-            "Rosso Kokkola",
-            "https://raflaamo.fi",
-            "https://google.com",
-            "13,70€ - 16,90€",
-            "11:00 - 14:00",
+            name="Harjun Rinkeli",
+            sheet_key="Harjun Rinkeli",
+            default_url="https://lounaat.info",
+            location="https://google.com",
+            lunch_price="11,00€ - 14,00€",
+            lunch_hours="10:30 - 14:00",
         )
-        self.region = "kokkola"
-        self.headers = HEADERS
-
-    def parse_menu(self, soup, lang):
-        idx = datetime.now().weekday()
-        if idx >= 5:
-            return ["Ei lounasta viikonloppuna."]
-        text = soup.get_text("\n", strip=True)
-        lines = extract_day_lines(text, idx)
-        if lines:
-            return lines
-        return [
-            "Päivän lounaspöytä & vaihtuvat pizza-/pastavaihtoehdot (katso tarkka päivälista otsikon linkistä)"
-        ]
 
 
-class KungsKitchenScraper(RestaurantScraper):
+class KulmaScraper(GoogleSheetKokkolaScraper):
     def __init__(self):
         super().__init__(
-            "Kung's Kitchen",
-            "https://facebook.com",
-            "https://google.com",
-            "13,50€",
-            "10:45 - 15:00",
+            name="Kahvila-Ravintola Kulma",
+            sheet_key="Kahvila-Ravintola Kulma",
+            default_url="https://compass-group.fi",
+            location="https://google.com",
+            lunch_price="13,30€",
+            lunch_hours="10:45 - 14:00",
         )
-        self.region = "kokkola"
-
-    def parse_menu(self, soup, lang):
-        return [
-            "Aasialainen lounasbuffet (kana-, nauta-, possu-, kala- ja kasvisvaihtoehdot)",
-            "Sisältää kevätrullat, sushia, keiton, salaattipöydän sekä kahvin/teen",
-        ]
