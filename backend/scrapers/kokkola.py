@@ -166,3 +166,25 @@ class KulmaScraper(GoogleSheetKokkolaScraper):
             lunch_price="13,30€",
             lunch_hours="10:45 - 14:00",
         )
+class HildaScraper(GoogleSheetKokkolaScraper):
+    def __init__(self):
+        super().__init__(
+            name="Ravintola Hilda",
+            sheet_key="Ravintola Hilda",
+            default_url="https://ravintolahilda.fi",
+            location="https://google.com",
+            lunch_price="13,50€",
+            lunch_hours="10:30 - 14:00",
+        )
+
+
+class HickaroScraper(GoogleSheetKokkolaScraper):
+    def __init__(self):
+        super().__init__(
+            name="Hickarö Resort",
+            sheet_key="Hickarö Resort",
+            default_url="https://hickaroresort.fi",
+            location="https://google.com",
+            lunch_price="14,50€",
+            lunch_hours="11:00 - 14:00",
+        )
